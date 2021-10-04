@@ -1,0 +1,5 @@
+url: http://localhost:8080/_status/vars
+port: 8888
+bucket:
+  startns: 100000 
+  bins: 10 
