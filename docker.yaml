@@ -1,5 +1,5 @@
 url: http://host.docker.internal:8080/_status/vars
 port: 8888
 bucket:
-  start: 3
+  startns: 100000 
   bins: 10 

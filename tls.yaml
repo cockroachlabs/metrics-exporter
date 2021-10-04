@@ -1,0 +1,11 @@
+# Sample configuration for a metrics-exporter that runs on secure mode 
+# and scrapes metric from a local instance of CockroachDB running in secure mode
+url:  https://localhost:8080/_status/vars
+port: 8888
+bucket:
+  startns: 1000000
+  bins: 10
+tls:
+  ca: certs/ca.crt
+  privatekey: certs/client.root.key
+  certificate: certs/client.root.crt
