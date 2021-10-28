@@ -16,12 +16,14 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"runtime"
 	"runtime/debug"
 
 	"internal/lib"
 
 	"github.com/NYTimes/gziphandler"
+	"github.com/prometheus/common/expfmt"
 )
 
 var (
@@ -42,6 +44,18 @@ func printVersionInfo(buildVersion string) {
 			fmt.Println(m.Path, m.Version)
 		}
 	}
+}
+
+func translateFromFile(ctx context.Context, config *lib.BucketConfig, filename string, writer *lib.MetricsWriter) {
+	log.Println("Reading from file :" + filename)
+	var parser expfmt.TextParser
+	var r, err = os.Open(filename)
+	if err != nil {
+		panic("File not found")
+	}
+	metricFamilies, _ := parser.TextToMetricFamilies(r)
+	writer.WriteMetrics(ctx, metricFamilies, os.Stdout)
+
 }
 
 func main() {
@@ -72,14 +86,17 @@ func main() {
 		}
 	}
 
+	writer := lib.CreateMetricsWriter(config)
+	ctx := context.Background()
+
 	if *localFile != "" {
-		lib.TranslateFromFile(&config.Bucket, *localFile)
+		log.Printf("Reading with:\n%+v\n\n", config)
+		translateFromFile(ctx, &config.Bucket, *localFile, writer)
 		return
 	}
 
 	reader := lib.CreateMetricsReader(config, transport)
-	writer := lib.CreateMetricsWriter(config)
-	ctx := context.Background()
+
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
 

@@ -8,7 +8,8 @@ package lib
 
 import (
 	"context"
-	"net/http"
+	"io"
+	"regexp"
 
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
@@ -16,13 +17,22 @@ import (
 
 // A MetricsWriter write metrics, after transforming them based on the configuration supplied.
 type MetricsWriter struct {
-	Config *Config
+	Config  *Config
+	Exclude *regexp.Regexp
 }
 
 // Create a MetricsWriter
 func CreateMetricsWriter(config *Config) *MetricsWriter {
+
+	var exp *regexp.Regexp
+	if config.Bucket.Exclude != "" {
+
+		exp = regexp.MustCompile(config.Bucket.Exclude)
+	}
+
 	return &MetricsWriter{
-		Config: config,
+		Config:  config,
+		Exclude: exp,
 	}
 }
 
@@ -30,11 +40,16 @@ func CreateMetricsWriter(config *Config) *MetricsWriter {
 func (w *MetricsWriter) WriteMetrics(
 	ctx context.Context,
 	metricFamilies map[string]*dto.MetricFamily,
-	h http.ResponseWriter) {
+	out io.Writer) {
 	for _, mf := range metricFamilies {
 		if mf.GetType() == dto.MetricType_HISTOGRAM {
+			//log.Println("processing " + mf.GetName())
+			if w.Exclude != nil && w.Exclude.MatchString(mf.GetName()) {
+				//	log.Println("Skipping " + mf.GetName())
+				continue
+			}
 			TranslateHistogram(&w.Config.Bucket, mf)
 		}
-		expfmt.MetricFamilyToText(h, mf)
+		expfmt.MetricFamilyToText(out, mf)
 	}
 }

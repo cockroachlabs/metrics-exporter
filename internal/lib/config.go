@@ -13,6 +13,7 @@ import (
 	"errors"
 	"io/ioutil"
 	"log"
+	"math"
 	"net/url"
 	"os"
 
@@ -50,11 +51,18 @@ Log10 Bucket Configuration
 
  * Bins: the number of linear buckets for each log10 bucket
  * Startns: The lower range in nanoseconds.
-
+ * Endns: Optional upper range
+ * Exclude: Regex of histogram names to exclude
+ * Unit: Time unit to use for the log10 buckets
+ *
 */
 type BucketConfig struct {
 	Bins    int
 	Startns int
+	// optional
+	Endns   int
+	Exclude string
+	Unit    string
 }
 
 func (b *BucketConfig) checkConfig() error {
@@ -62,6 +70,21 @@ func (b *BucketConfig) checkConfig() error {
 		return nil
 	}
 	return errors.New("Invalid Bucket Configuration")
+}
+
+func (b *BucketConfig) UnitDiv() float64 {
+	var div float64 = 1
+	if b.Unit != "" {
+		switch b.Unit {
+		case "seconds":
+			div = math.Pow10(9)
+		case "milliseconds":
+			div = math.Pow10(6)
+		case "microseconds":
+			div = math.Pow10(3)
+		}
+	}
+	return div
 }
 
 /*

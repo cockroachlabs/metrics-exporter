@@ -49,7 +49,7 @@ func (r *MetricsReader) ReadMetrics(ctx context.Context) (map[string]*dto.Metric
 		return nil, err
 	}
 	defer data.Body.Close()
-	if data.StatusCode != 200 {
+	if data.StatusCode != http.StatusOK {
 		return nil, errors.New(data.Status)
 	}
 	var parser expfmt.TextParser

@@ -7,14 +7,9 @@
 package lib
 
 import (
-	"bytes"
-	"fmt"
-	"log"
 	"math"
-	"os"
 
 	dto "github.com/prometheus/client_model/go"
-	"github.com/prometheus/common/expfmt"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -22,13 +17,16 @@ type log10Bucket struct {
 	BinNums int
 	Curr    float64
 	Max     float64
+	UnitDiv float64
 }
 
-func createLog10Bucket(start float64, max float64, bins int) *log10Bucket {
+func createLog10Bucket(start float64, max float64, bins int, div float64) *log10Bucket {
 	return &log10Bucket{
 		Curr:    start,
 		Max:     max,
-		BinNums: bins}
+		BinNums: bins,
+		UnitDiv: div,
+	}
 }
 
 // Computes the next bin
@@ -60,8 +58,16 @@ func (currLog10Bucket *log10Bucket) addLog10Buckets(
 	count := currHdrBucket.GetCumulativeCount()
 	// last bucket has le = +Inf.
 	if le == math.Inf(1) {
+		for currLog10Bucket.binUpperBound() < currLog10Bucket.Max {
+			bucket := &dto.Bucket{
+				UpperBound:      proto.Float64(currLog10Bucket.binUpperBound() / currLog10Bucket.UnitDiv),
+				CumulativeCount: proto.Uint64(count),
+			}
+			currLog10Bucket.nextBin()
+			newBuckets = append(newBuckets, bucket)
+		}
 		return append(newBuckets, &dto.Bucket{
-			UpperBound:      proto.Float64(currLog10Bucket.binUpperBound()),
+			UpperBound:      proto.Float64(currLog10Bucket.binUpperBound() / currLog10Bucket.UnitDiv),
 			CumulativeCount: proto.Uint64(count)})
 
 	}
@@ -84,9 +90,11 @@ func (currLog10Bucket *log10Bucket) addLog10Buckets(
 		adj := math.Floor(float64(count-pcount) * (le - currLog10Bucket.binUpperBound()) / (le - ple))
 		res := count - uint64(adj)
 		bucket := &dto.Bucket{
-			UpperBound:      proto.Float64(currLog10Bucket.binUpperBound()),
+			UpperBound:      proto.Float64(currLog10Bucket.binUpperBound() / currLog10Bucket.UnitDiv),
 			CumulativeCount: proto.Uint64(res),
 		}
+		//fmt.Printf("%+v", currLog10Bucket)
+		//fmt.Printf("%+v", bucket)
 		currLog10Bucket.nextBin()
 		newBuckets = append(newBuckets, bucket)
 	}
@@ -102,33 +110,18 @@ func TranslateHistogram(config *BucketConfig, mf *dto.MetricFamily) {
 		max := 0.0
 		if len(m.Histogram.Bucket) >= 2 {
 			max = m.Histogram.Bucket[len(m.Histogram.Bucket)-2].GetUpperBound()
+			if config.Endns > 0 {
+				max = float64(config.Endns)
+			}
 			requiredBuckets = requiredBuckets + int(math.Ceil(math.Log10(float64(max))))*bins
 		}
 		newBuckets := make([]*dto.Bucket, 0, requiredBuckets)
-		currLog10Bucket := createLog10Bucket(float64(config.Startns), max, bins)
+		currLog10Bucket := createLog10Bucket(float64(config.Startns), max, bins, config.UnitDiv())
 
 		for _, curr := range m.GetHistogram().GetBucket() {
 			newBuckets = currLog10Bucket.addLog10Buckets(curr, prev, newBuckets)
 			prev = curr
 		}
 		m.Histogram.Bucket = newBuckets
-	}
-}
-
-func TranslateFromFile(config *BucketConfig, filename string) {
-	log.Println("Reading from file :" + filename)
-	var parser expfmt.TextParser
-	var r, err = os.Open(filename)
-	if err != nil {
-		panic("File not found")
-	}
-	metricFamilies, _ := parser.TextToMetricFamilies(r)
-	for _, mf := range metricFamilies {
-		if mf.GetType() == dto.MetricType_HISTOGRAM {
-			TranslateHistogram(config, mf)
-		}
-		var buf bytes.Buffer
-		expfmt.MetricFamilyToText(&buf, mf)
-		fmt.Println(buf.String())
 	}
 }

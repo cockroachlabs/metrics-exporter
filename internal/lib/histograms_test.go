@@ -42,7 +42,7 @@ func TestHistogramConversion(t *testing.T) {
 		var buf bytes.Buffer
 		expfmt.MetricFamilyToText(&buf, mf)
 
-		assert.Equal(buf.String(), output)
+		assert.Equal(output, buf.String())
 	}
 }
 
@@ -58,7 +58,7 @@ func TestMultiStoreConversion(t *testing.T) {
 		TranslateHistogram(config, mf)
 		var buf bytes.Buffer
 		expfmt.MetricFamilyToText(&buf, mf)
-		assert.Equal(buf.String(), multistoreout)
+		assert.Equal(multistoreout, buf.String())
 	}
 
 }
@@ -75,7 +75,7 @@ func TestIdentityConversion(t *testing.T) {
 		TranslateHistogram(config, mf)
 		var buf bytes.Buffer
 		expfmt.MetricFamilyToText(&buf, mf)
-		assert.Equal(buf.String(), output)
+		assert.Equal(output, buf.String())
 	}
 
 }
