@@ -53,6 +53,7 @@ Log10 Bucket Configuration
  * Startns: The lower range in nanoseconds.
  * Endns: Optional upper range
  * Exclude: Regex of histogram names to exclude
+ * Include: Regex of histogram names to include, regardless of the exclude settings
  * Unit: Time unit to use for the log10 buckets
  *
 */
@@ -62,6 +63,7 @@ type BucketConfig struct {
 	// optional
 	Endns   int
 	Exclude string
+	Include string
 	Unit    string
 }
 

@@ -86,7 +86,7 @@ func (currLog10Bucket *log10Bucket) addLog10Buckets(
 	}
 	for currLog10Bucket.binUpperBound() < le && currLog10Bucket.binUpperBound() <= currLog10Bucket.Max {
 		// Assuming a uniform distribution within each of the original buckets, adjust the count if the new
-		// bucket spans across two original buckets
+		// bucket upper bound falls within the original bucket.
 		adj := math.Floor(float64(count-pcount) * (le - currLog10Bucket.binUpperBound()) / (le - ple))
 		res := count - uint64(adj)
 		bucket := &dto.Bucket{
@@ -101,7 +101,7 @@ func (currLog10Bucket *log10Bucket) addLog10Buckets(
 	return newBuckets
 }
 
-// Traslate the HDR Histogram into a Log10 linear histogram
+// Translate the HDR Histogram into a Log10 linear histogram
 func TranslateHistogram(config *BucketConfig, mf *dto.MetricFamily) {
 	bins := config.Bins
 	for _, m := range mf.Metric {
@@ -117,7 +117,6 @@ func TranslateHistogram(config *BucketConfig, mf *dto.MetricFamily) {
 		}
 		newBuckets := make([]*dto.Bucket, 0, requiredBuckets)
 		currLog10Bucket := createLog10Bucket(float64(config.Startns), max, bins, config.UnitDiv())
-
 		for _, curr := range m.GetHistogram().GetBucket() {
 			newBuckets = currLog10Bucket.addLog10Buckets(curr, prev, newBuckets)
 			prev = curr

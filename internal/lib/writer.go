@@ -19,20 +19,22 @@ import (
 type MetricsWriter struct {
 	Config  *Config
 	Exclude *regexp.Regexp
+	Include *regexp.Regexp
 }
 
 // Create a MetricsWriter
 func CreateMetricsWriter(config *Config) *MetricsWriter {
-
-	var exp *regexp.Regexp
+	var exc, inc *regexp.Regexp
 	if config.Bucket.Exclude != "" {
-
-		exp = regexp.MustCompile(config.Bucket.Exclude)
+		exc = regexp.MustCompile(config.Bucket.Exclude)
 	}
-
+	if config.Bucket.Include != "" {
+		inc = regexp.MustCompile(config.Bucket.Include)
+	}
 	return &MetricsWriter{
 		Config:  config,
-		Exclude: exp,
+		Exclude: exc,
+		Include: inc,
 	}
 }
 
@@ -43,9 +45,10 @@ func (w *MetricsWriter) WriteMetrics(
 	out io.Writer) {
 	for _, mf := range metricFamilies {
 		if mf.GetType() == dto.MetricType_HISTOGRAM {
-			//log.Println("processing " + mf.GetName())
-			if w.Exclude != nil && w.Exclude.MatchString(mf.GetName()) {
-				//	log.Println("Skipping " + mf.GetName())
+			if w.Include != nil && w.Include.MatchString(mf.GetName()) {
+				// Processing this even it matches the exclude.
+			} else if w.Exclude != nil && w.Exclude.MatchString(mf.GetName()) {
+				// Skipping this
 				continue
 			}
 			TranslateHistogram(&w.Config.Bucket, mf)
