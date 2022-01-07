@@ -108,10 +108,17 @@ func TranslateHistogram(config *BucketConfig, mf *dto.MetricFamily) {
 		var prev *dto.Bucket = nil
 		requiredBuckets := 1
 		max := 0.0
+		//fmt.Printf("Metric %+v\n", mf)
 		if len(m.Histogram.Bucket) >= 2 {
-			max = m.Histogram.Bucket[len(m.Histogram.Bucket)-2].GetUpperBound()
 			if config.Endns > 0 {
 				max = float64(config.Endns)
+			} else {
+				for _, b := range m.Histogram.Bucket {
+					u := b.GetUpperBound()
+					if u != math.Inf(1) && u > max {
+						max = u
+					}
+				}
 			}
 			requiredBuckets = requiredBuckets + int(math.Ceil(math.Log10(float64(max))))*bins
 		}

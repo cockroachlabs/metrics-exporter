@@ -102,7 +102,7 @@ func main() {
 
 		metricFamilies, err := reader.ReadMetrics(ctx)
 		if err != nil {
-			w.WriteHeader(500)
+			w.WriteHeader(http.StatusInternalServerError)
 			fmt.Fprintln(w, err)
 			return
 		}

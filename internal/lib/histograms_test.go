@@ -41,7 +41,6 @@ func TestHistogramConversion(t *testing.T) {
 		TranslateHistogram(config, mf)
 		var buf bytes.Buffer
 		expfmt.MetricFamilyToText(&buf, mf)
-
 		assert.Equal(output, buf.String())
 	}
 }
