@@ -4,7 +4,7 @@
 // by the Apache License, Version 2.0, included in the file
 // LICENSE.md
 
-// Utilties functions to read/write/transform metrics.
+// Package lib provides utility functions to read/write/transform metrics.
 package lib
 
 import (
@@ -20,23 +20,21 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-/*
-Metrics Exporter Configuration
-
- * Bucket: Log10 Bucket Configuration
- * Port: Port that the export is listening to
- * Tls: optional Tls configuration
- * Url: CockroachDB Prometheus endpoint
-*/
+// Config has the configuration for the metrics-exporter
+// * Bucket: Log10 Bucket Configuration
+// * Port: Port that the export is listening to
+// * Tls: optional Tls configuration
+// * Url: CockroachDB Prometheus endpoint
 type Config struct {
 	Bucket BucketConfig
 	Port   int
-	Tls    TlsConfig `yaml:"tls,omitempty"`
-	Url    string
+	TLS    TLSConfig `yaml:"tls,omitempty"`
+	URL    string
+	Custom Custom `yaml:"custom,omitempty"`
 }
 
 func (c Config) checkConfig() error {
-	_, err := url.ParseRequestURI(c.Url)
+	_, err := url.ParseRequestURI(c.URL)
 	if err != nil {
 		return err
 	}
@@ -46,17 +44,13 @@ func (c Config) checkConfig() error {
 	return c.Bucket.checkConfig()
 }
 
-/*
-Log10 Bucket Configuration
-
- * Bins: the number of linear buckets for each log10 bucket
- * Startns: The lower range in nanoseconds.
- * Endns: Optional upper range
- * Exclude: Regex of histogram names to exclude
- * Include: Regex of histogram names to include, regardless of the exclude settings
- * Unit: Time unit to use for the log10 buckets
- *
-*/
+// BucketConfig defines the config parameters for each histogram bucket
+// * Bins: the number of linear buckets for each log10 bucket
+// * Startns: The lower range in nanoseconds.
+// * Endns: Optional upper range
+// * Exclude: Regex of histogram names to exclude
+// * Include: Regex of histogram names to include, regardless of the exclude settings
+// * Unit: Time unit to use for the log10 buckets
 type BucketConfig struct {
 	Bins    int
 	Startns int
@@ -67,13 +61,7 @@ type BucketConfig struct {
 	Unit    string
 }
 
-func (b *BucketConfig) checkConfig() error {
-	if b.Bins >= 1 && b.Bins <= 100 && b.Startns >= 1 {
-		return nil
-	}
-	return errors.New("Invalid Bucket Configuration")
-}
-
+// UnitDiv converts time units into nano secods
 func (b *BucketConfig) UnitDiv() float64 {
 	var div float64 = 1
 	if b.Unit != "" {
@@ -89,28 +77,34 @@ func (b *BucketConfig) UnitDiv() float64 {
 	return div
 }
 
-/*
-TlsConfig  Configuration
- * Ca: CA certificate file location
- * Certificate: X.509 certificate for the server
- * Host: Host name associated with X.509 certificate.
- * PrivateKey: Server private key
-
-*/
-type TlsConfig struct {
+// TLSConfig  Configuration
+// * Ca: CA certificate file location
+// * Certificate: X.509 certificate for the server
+// * Host: Host name associated with X.509 certificate.
+// * PrivateKey: Server private key
+type TLSConfig struct {
 	Ca          string
 	Certificate string
 	Host        string
 	PrivateKey  string
 }
 
-// Context for TLS connections
-type TlsClientContext struct {
+// TLSClientContext is the context for TLS connections.
+type TLSClientContext struct {
 	CertPool    *x509.CertPool
 	Certificate tls.Certificate
 }
 
-// Reads yaml configuration from a file
+// Custom provides the configuration to retrieve custom metrics
+type Custom struct {
+	URL                 string
+	DisableGetStatement bool
+	Limit               int
+	SkipActivity        bool
+	SkipEfficiency      bool
+}
+
+// ReadConfig reads yaml configuration from a file
 func ReadConfig(configLocation *string) *Config {
 	data, err := os.ReadFile(*configLocation)
 	if err != nil {
@@ -129,42 +123,54 @@ func ReadConfig(configLocation *string) *Config {
 	return &config
 }
 
-// Returns true if there is a Tls configuration
-func (config *Config) IsSecure() bool {
-	return config.Tls != TlsConfig{}
+// IsSecure returns true if there is a Tls configuration
+func (c *Config) IsSecure() bool {
+	return c.TLS != TLSConfig{}
 }
 
-// Builds the Client TLS context
-func (config *Config) GetTlsClientContext() (*TlsClientContext, error) {
+// HasCustom returns true if there is a custom section
+func (c *Config) HasCustom() bool {
+	return c.Custom != Custom{}
+}
+
+// GetTLSClientContext builds the Client TLS context
+func (c *Config) GetTLSClientContext() (*TLSClientContext, error) {
 	var cert tls.Certificate
 	var err error
-	if config.Tls.Certificate != "" && config.Tls.PrivateKey != "" {
-		cert, err = tls.LoadX509KeyPair(config.Tls.Certificate, config.Tls.PrivateKey)
+	if c.TLS.Certificate != "" && c.TLS.PrivateKey != "" {
+		cert, err = tls.LoadX509KeyPair(c.TLS.Certificate, c.TLS.PrivateKey)
 		if err != nil {
 			return nil, err
 		}
 	}
-	caCert, err := ioutil.ReadFile(config.Tls.Ca)
+	caCert, err := ioutil.ReadFile(c.TLS.Ca)
 	caCertPool := x509.NewCertPool()
 	caCertPool.AppendCertsFromPEM(caCert)
-	return &TlsClientContext{
+	return &TLSClientContext{
 		CertPool:    caCertPool,
 		Certificate: cert,
 	}, err
 }
 
-// Builds the Server TLS context
-func (config *Config) GetTlsServerContext() (*tls.Config, error) {
-	caCert, err := ioutil.ReadFile(config.Tls.Ca)
+// GetTLSServerContext builds the Server TLS context
+func (c *Config) GetTLSServerContext() (*tls.Config, error) {
+	caCert, err := ioutil.ReadFile(c.TLS.Ca)
 	if err != nil {
 		return nil, err
 	}
 	caCertPool := x509.NewCertPool()
 	caCertPool.AppendCertsFromPEM(caCert)
 	return &tls.Config{
-		ServerName: config.Tls.Host,
+		ServerName: c.TLS.Host,
 		ClientAuth: tls.NoClientCert,
 		ClientCAs:  caCertPool,
 		MinVersion: tls.VersionTLS12,
 	}, nil
+}
+
+func (b *BucketConfig) checkConfig() error {
+	if b.Bins >= 1 && b.Bins <= 100 && b.Startns >= 1 {
+		return nil
+	}
+	return errors.New("Invalid Bucket Configuration")
 }

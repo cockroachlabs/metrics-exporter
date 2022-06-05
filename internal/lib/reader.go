@@ -15,14 +15,14 @@ import (
 	"github.com/prometheus/common/expfmt"
 )
 
-// A MetricReader reads the metrics from a CockroachDB endpoint (/_status/var)
+// MetricsReader reads the metrics from a CockroachDB endpoint (/_status/var)
 type MetricsReader struct {
 	Config *Config
 	//SecureCtx *TlsClientContext
 	Transport *http.Transport
 }
 
-// Creates a new Reader
+// CreateMetricsReader instantiates a new Reader
 func CreateMetricsReader(c *Config, t *http.Transport) *MetricsReader {
 	return &MetricsReader{
 		Config:    c,
@@ -34,7 +34,7 @@ func (r *MetricsReader) fetch(ctx context.Context) (*http.Response, error) {
 	client := http.Client{
 		Transport: r.Transport,
 	}
-	req, err := http.NewRequest(http.MethodGet, r.Config.Url, nil)
+	req, err := http.NewRequest(http.MethodGet, r.Config.URL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +42,7 @@ func (r *MetricsReader) fetch(ctx context.Context) (*http.Response, error) {
 	return client.Do(req)
 }
 
-// Read the metrics from the endpoint and returns a map of dto.MetricFamily
+// ReadMetrics reads the metrics from the endpoint and returns a map of dto.MetricFamily
 func (r *MetricsReader) ReadMetrics(ctx context.Context) (map[string]*dto.MetricFamily, error) {
 	data, err := r.fetch(ctx)
 	if err != nil {
