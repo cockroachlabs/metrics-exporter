@@ -14,16 +14,19 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
-	"log"
+	"internal/lib"
+	"math"
 	"net/http"
 	"os"
 	"runtime"
 	"runtime/debug"
-
-	"internal/lib"
+	"strings"
+	"time"
 
 	"github.com/NYTimes/gziphandler"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/common/expfmt"
+	log "github.com/sirupsen/logrus"
 )
 
 var (
@@ -46,8 +49,10 @@ func printVersionInfo(buildVersion string) {
 	}
 }
 
-func translateFromFile(ctx context.Context, config *lib.BucketConfig, filename string, writer *lib.MetricsWriter) {
-	log.Println("Reading from file :" + filename)
+func translateFromFile(
+	ctx context.Context, config *lib.BucketConfig, filename string, writer *lib.MetricsWriter,
+) {
+	log.Info("Reading from file :" + filename)
 	var parser expfmt.TextParser
 	var r, err = os.Open(filename)
 	if err != nil {
@@ -61,20 +66,27 @@ func translateFromFile(ctx context.Context, config *lib.BucketConfig, filename s
 func main() {
 	configLocation := flag.String("config", "", "YAML configuration")
 	printVersion := flag.Bool("version", false, "print version and exit")
-	localFile := flag.String("local", "", "local file")
+	debug := flag.Bool("debug", false, "log debug info")
+	trace := flag.Bool("trace", false, "log trace info")
+	localFile := flag.String("local", "", "use local file to read Prometheus metrics (for testing)")
 	flag.Parse()
 	if *printVersion {
 		printVersionInfo(buildVersion)
 		return
 	}
-
+	if *debug {
+		log.SetLevel(log.DebugLevel)
+	}
+	if *trace {
+		log.SetLevel(log.TraceLevel)
+	}
 	config := lib.ReadConfig(configLocation)
 	var err error = nil
-	var secureCtx *lib.TlsClientContext = nil
+	var secureCtx *lib.TLSClientContext = nil
 	var transport = &http.Transport{}
 
 	if config.IsSecure() {
-		secureCtx, err = config.GetTlsClientContext()
+		secureCtx, err = config.GetTLSClientContext()
 		if err != nil {
 			log.Fatal("Error setting up secure context: ", err)
 		}
@@ -90,7 +102,7 @@ func main() {
 	ctx := context.Background()
 
 	if *localFile != "" {
-		log.Printf("Reading with:\n%+v\n\n", config)
+		log.Infof("Reading with:\n%+v\n\n", config)
 		translateFromFile(ctx, &config.Bucket, *localFile, writer)
 		return
 	}
@@ -109,23 +121,60 @@ func main() {
 		writer.WriteMetrics(ctx, metricFamilies, w)
 
 	})
-
 	http.Handle("/_status/vars", gziphandler.GzipHandler(handler))
+	if config.HasCustom() {
+		db, err := lib.NewCollector(ctx, config.Custom)
+		if err != nil {
+			log.Fatal("error connecting to the database", err)
+		}
+		go func() {
+			for {
+				err := db.GetCustomMetrics(ctx)
+				if err != nil {
+					log.Error(err)
+				}
+				// run this on the minute.
+				w := time.Duration(int(time.Minute) - time.Now().Second()*int(math.Pow10(9)))
+				time.Sleep(w * time.Nanosecond)
+			}
+		}()
+		http.Handle("/_status/custom", promhttp.Handler())
+		if !config.Custom.DisableGetStatement {
+			http.Handle("/statement/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				args := strings.Split(r.URL.Path, "/")
+				if len(args) == 3 {
+					res, err := db.GetStatement(ctx, args[2])
+					if err != nil {
+						w.WriteHeader(http.StatusInternalServerError)
+						fmt.Fprintln(w, err)
+						return
+					}
+					w.WriteHeader(http.StatusOK)
+					fmt.Fprintln(w, res)
+				} else {
+					w.WriteHeader(http.StatusBadRequest)
+					fmt.Fprintln(w, len(args))
+					return
+				}
+			}))
+		}
+	}
 
 	server := &http.Server{
 		Addr: ":" + fmt.Sprintf("%d", config.Port),
 	}
-	log.Printf("Starting proxy with:\n%+v\n\n", config)
+	log.Info("Starting proxy")
+	log.Debugf("Bucket config: %+v\n Custom config:%+v\n", config.Bucket, config.Custom)
 
 	if !config.IsSecure() {
 		err = server.ListenAndServe()
 
 	} else {
-		server.TLSConfig, err = config.GetTlsServerContext()
+		server.TLSConfig, err = config.GetTLSServerContext()
 		if err != nil {
 			log.Fatal("Error setting up secure server: ", err)
 		}
-		err = server.ListenAndServeTLS(config.Tls.Certificate, config.Tls.PrivateKey)
+		err = server.ListenAndServeTLS(config.TLS.Certificate, config.TLS.PrivateKey)
 	}
 	if err != nil {
 		log.Fatal("Error starting server: ", err)

@@ -50,31 +50,28 @@ func (b *log10Bucket) binUpperBound() float64 {
 	return b.Curr
 }
 
-func (currLog10Bucket *log10Bucket) addLog10Buckets(
-	currHdrBucket *dto.Bucket,
-	prevHdrBucket *dto.Bucket,
-	newBuckets []*dto.Bucket) []*dto.Bucket {
+func (b *log10Bucket) addLog10Buckets(
+	currHdrBucket *dto.Bucket, prevHdrBucket *dto.Bucket, newBuckets []*dto.Bucket,
+) []*dto.Bucket {
 	le := currHdrBucket.GetUpperBound()
 	count := currHdrBucket.GetCumulativeCount()
-	// last bucket has le = +Inf.
 	if le == math.Inf(1) {
-		for currLog10Bucket.binUpperBound() < currLog10Bucket.Max {
+		for b.binUpperBound() < b.Max {
 			bucket := &dto.Bucket{
-				UpperBound:      proto.Float64(currLog10Bucket.binUpperBound() / currLog10Bucket.UnitDiv),
+				UpperBound:      proto.Float64(b.binUpperBound() / b.UnitDiv),
 				CumulativeCount: proto.Uint64(count),
 			}
-			currLog10Bucket.nextBin()
+			b.nextBin()
 			newBuckets = append(newBuckets, bucket)
 		}
 		return append(newBuckets, &dto.Bucket{
-			UpperBound:      proto.Float64(currLog10Bucket.binUpperBound() / currLog10Bucket.UnitDiv),
+			UpperBound:      proto.Float64(b.binUpperBound() / b.UnitDiv),
 			CumulativeCount: proto.Uint64(count)})
 
 	}
-	// skip over lower buckets
-	if prevHdrBucket == nil && currLog10Bucket.binUpperBound() < le {
-		for currLog10Bucket.binUpperBound() < le && currLog10Bucket.binUpperBound() <= currLog10Bucket.Max {
-			currLog10Bucket.nextBin()
+	if prevHdrBucket == nil && b.binUpperBound() < le {
+		for b.binUpperBound() < le && b.binUpperBound() <= b.Max {
+			b.nextBin()
 		}
 		return newBuckets
 	}
@@ -84,31 +81,28 @@ func (currLog10Bucket *log10Bucket) addLog10Buckets(
 		ple = prevHdrBucket.GetUpperBound()
 		pcount = prevHdrBucket.GetCumulativeCount()
 	}
-	for currLog10Bucket.binUpperBound() < le && currLog10Bucket.binUpperBound() <= currLog10Bucket.Max {
+	for b.binUpperBound() < le && b.binUpperBound() <= b.Max {
 		// Assuming a uniform distribution within each of the original buckets, adjust the count if the new
 		// bucket upper bound falls within the original bucket.
-		adj := math.Floor(float64(count-pcount) * (le - currLog10Bucket.binUpperBound()) / (le - ple))
+		adj := math.Floor(float64(count-pcount) * (le - b.binUpperBound()) / (le - ple))
 		res := count - uint64(adj)
 		bucket := &dto.Bucket{
-			UpperBound:      proto.Float64(currLog10Bucket.binUpperBound() / currLog10Bucket.UnitDiv),
+			UpperBound:      proto.Float64(b.binUpperBound() / b.UnitDiv),
 			CumulativeCount: proto.Uint64(res),
 		}
-		//fmt.Printf("%+v", currLog10Bucket)
-		//fmt.Printf("%+v", bucket)
-		currLog10Bucket.nextBin()
+		b.nextBin()
 		newBuckets = append(newBuckets, bucket)
 	}
 	return newBuckets
 }
 
-// Translate the HDR Histogram into a Log10 linear histogram
+// TranslateHistogram translates the HDR Histogram into a Log10 linear histogram
 func TranslateHistogram(config *BucketConfig, mf *dto.MetricFamily) {
 	bins := config.Bins
 	for _, m := range mf.Metric {
 		var prev *dto.Bucket = nil
 		requiredBuckets := 1
 		max := 0.0
-		//fmt.Printf("Metric %+v\n", mf)
 		if len(m.Histogram.Bucket) >= 2 {
 			if config.Endns > 0 {
 				max = float64(config.Endns)
