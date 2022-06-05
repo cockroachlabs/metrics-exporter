@@ -51,12 +51,10 @@ func (b *log10Bucket) binUpperBound() float64 {
 }
 
 func (currLog10Bucket *log10Bucket) addLog10Buckets(
-	currHdrBucket *dto.Bucket,
-	prevHdrBucket *dto.Bucket,
-	newBuckets []*dto.Bucket) []*dto.Bucket {
+	currHdrBucket *dto.Bucket, prevHdrBucket *dto.Bucket, newBuckets []*dto.Bucket,
+) []*dto.Bucket {
 	le := currHdrBucket.GetUpperBound()
 	count := currHdrBucket.GetCumulativeCount()
-	// last bucket has le = +Inf.
 	if le == math.Inf(1) {
 		for currLog10Bucket.binUpperBound() < currLog10Bucket.Max {
 			bucket := &dto.Bucket{
@@ -71,7 +69,6 @@ func (currLog10Bucket *log10Bucket) addLog10Buckets(
 			CumulativeCount: proto.Uint64(count)})
 
 	}
-	// skip over lower buckets
 	if prevHdrBucket == nil && currLog10Bucket.binUpperBound() < le {
 		for currLog10Bucket.binUpperBound() < le && currLog10Bucket.binUpperBound() <= currLog10Bucket.Max {
 			currLog10Bucket.nextBin()
@@ -93,8 +90,6 @@ func (currLog10Bucket *log10Bucket) addLog10Buckets(
 			UpperBound:      proto.Float64(currLog10Bucket.binUpperBound() / currLog10Bucket.UnitDiv),
 			CumulativeCount: proto.Uint64(res),
 		}
-		//fmt.Printf("%+v", currLog10Bucket)
-		//fmt.Printf("%+v", bucket)
 		currLog10Bucket.nextBin()
 		newBuckets = append(newBuckets, bucket)
 	}

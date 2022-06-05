@@ -14,16 +14,19 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
-	"log"
+	"internal/lib"
+	"math"
 	"net/http"
 	"os"
 	"runtime"
 	"runtime/debug"
-
-	"internal/lib"
+	"strings"
+	"time"
 
 	"github.com/NYTimes/gziphandler"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/common/expfmt"
+	log "github.com/sirupsen/logrus"
 )
 
 var (
@@ -46,8 +49,10 @@ func printVersionInfo(buildVersion string) {
 	}
 }
 
-func translateFromFile(ctx context.Context, config *lib.BucketConfig, filename string, writer *lib.MetricsWriter) {
-	log.Println("Reading from file :" + filename)
+func translateFromFile(
+	ctx context.Context, config *lib.BucketConfig, filename string, writer *lib.MetricsWriter,
+) {
+	log.Info("Reading from file :" + filename)
 	var parser expfmt.TextParser
 	var r, err = os.Open(filename)
 	if err != nil {
@@ -90,7 +95,7 @@ func main() {
 	ctx := context.Background()
 
 	if *localFile != "" {
-		log.Printf("Reading with:\n%+v\n\n", config)
+		log.Infof("Reading with:\n%+v\n\n", config)
 		translateFromFile(ctx, &config.Bucket, *localFile, writer)
 		return
 	}
@@ -109,13 +114,55 @@ func main() {
 		writer.WriteMetrics(ctx, metricFamilies, w)
 
 	})
-
 	http.Handle("/_status/vars", gziphandler.GzipHandler(handler))
+	if config.HasCustom() {
+		db, err := lib.InitDb(ctx, config.Custom.Url)
+		if err != nil {
+			log.Fatal("error connecting to the database", err)
+		}
+		main, err := db.IsMainNode(ctx)
+		if err != nil {
+			log.Fatal("unable to connect to node", err)
+		}
+		if main {
+			log.Info("Main node")
+		} else {
+			log.Info("Not a main node. Skipping sql activity retrieval")
+		}
+		go func() {
+			for {
+				err := db.GetCustomMetrics(ctx, config.Custom.Limit)
+				if err != nil {
+					log.Error(err)
+				}
+				w := time.Duration(int(time.Minute) - time.Now().Second()*int(math.Pow10(9)))
+				time.Sleep(w * time.Nanosecond)
+			}
+		}()
+		http.Handle("/_status/custom", promhttp.Handler())
+		http.Handle("/statement/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			args := strings.Split(r.URL.Path, "/")
+			if len(args) == 3 {
+				res, err := db.GetStatement(ctx, args[2])
+				if err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					fmt.Fprintln(w, err)
+					return
+				}
+				w.WriteHeader(http.StatusOK)
+				fmt.Fprintln(w, res)
+			} else {
+				w.WriteHeader(http.StatusBadRequest)
+				fmt.Fprintln(w, len(args))
+				return
+			}
+		}))
+	}
 
 	server := &http.Server{
 		Addr: ":" + fmt.Sprintf("%d", config.Port),
 	}
-	log.Printf("Starting proxy with:\n%+v\n\n", config)
+	log.Infof("Starting proxy with:\n%+v\n\n", config.Bucket)
 
 	if !config.IsSecure() {
 		err = server.ListenAndServe()

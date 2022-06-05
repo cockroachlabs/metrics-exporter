@@ -33,6 +33,7 @@ type Config struct {
 	Port   int
 	Tls    TlsConfig `yaml:"tls,omitempty"`
 	Url    string
+	Custom Custom `yaml:"custom,omitempty"`
 }
 
 func (c Config) checkConfig() error {
@@ -104,10 +105,16 @@ type TlsConfig struct {
 	PrivateKey  string
 }
 
-// Context for TLS connections
+// Context for TLS connections.
 type TlsClientContext struct {
 	CertPool    *x509.CertPool
 	Certificate tls.Certificate
+}
+
+// Url to fetch custom metrics from the cluster.
+type Custom struct {
+	Url   string
+	Limit int
 }
 
 // Reads yaml configuration from a file
@@ -132,6 +139,11 @@ func ReadConfig(configLocation *string) *Config {
 // Returns true if there is a Tls configuration
 func (config *Config) IsSecure() bool {
 	return config.Tls != TlsConfig{}
+}
+
+// Returns true if there is a custom section
+func (config *Config) HasCustom() bool {
+	return config.Custom != Custom{}
 }
 
 // Builds the Client TLS context

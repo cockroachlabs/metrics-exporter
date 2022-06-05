@@ -13,6 +13,8 @@ The configuration, specified in yaml format specifies the cockroach db URL the p
 The log-10 linear format precision is configurable, specifying the lower range (in nanoseconds) and the number of linear bins for each logarithmic bin. 
 Optionally, the user can specify the upper range (in nanoseconds), the unit (seconds,milliseconds,microseconds) to convert the bucket ranges, and a regex expression to include/exclude matching histograms (all the buckets matching the include regex will be included, even if the match the exclude regex).
 The tls section allows the user to specify CA, cert and private key to connect to the backend. The same configuration is used to configure the HTTPS endpoint that the proxy listen to.
+The custom section enables the collection of custom metrics: sql activity per query, as well as global efficiency measurements (full scans, index joins, explicit transactions).
+Custom metrics are exposed on the /_status/custom endpoint.
 
 ### Sample configuration:
 
@@ -30,5 +32,8 @@ tls:
   ca: ./certs/ca.crt
   privatekey: ./certs/client.root.key
   certificate: ./certs/client.root.crt
+custom:
+  url: postgresql://root@localhost:26257?sslmode=disable
+  limit: 100  
 ```
 
