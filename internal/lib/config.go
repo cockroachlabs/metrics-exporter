@@ -102,6 +102,8 @@ type Custom struct {
 	Limit               int
 	SkipActivity        bool
 	SkipEfficiency      bool
+	Frequency           int
+	Endpoint            string
 }
 
 // ReadConfig reads yaml configuration from a file
