@@ -284,9 +284,10 @@ func (c *Collector) getActivity(ctx context.Context) error {
 			lastCount := cached.(int64)
 			if r.cnt >= lastCount {
 				requests.WithLabelValues(labels...).Add(float64(r.cnt - lastCount))
-			} else {
-				requests.WithLabelValues(labels...).Add(float64(r.cnt))
 			}
+			// } else {
+			// 	requests.WithLabelValues(labels...).Add(float64(r.cnt))
+			// }
 		} else if !c.first {
 			requests.WithLabelValues(labels...).Add(float64(r.cnt))
 		}

@@ -15,7 +15,6 @@ import (
 	"flag"
 	"fmt"
 	"internal/lib"
-	"math"
 	"net/http"
 	"os"
 	"runtime"
@@ -24,6 +23,7 @@ import (
 	"time"
 
 	"github.com/NYTimes/gziphandler"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/common/expfmt"
 	log "github.com/sirupsen/logrus"
@@ -31,7 +31,8 @@ import (
 
 var (
 	// buildVersion is set by the go linker at build time
-	buildVersion = "<unknown>"
+	buildVersion           = "<unknown>"
+	defaultCustomFrequency = 10
 )
 
 func printVersionInfo(buildVersion string) {
@@ -119,45 +120,62 @@ func main() {
 			return
 		}
 		writer.WriteMetrics(ctx, metricFamilies, w)
-
+		if config.HasCustom() && config.Custom.Endpoint == "/_status/vars" {
+			customHandler := promhttp.InstrumentMetricHandler(
+				prometheus.DefaultRegisterer, promhttp.HandlerFor(prometheus.DefaultGatherer,
+					promhttp.HandlerOpts{
+						DisableCompression: true,
+					}),
+			)
+			customHandler.ServeHTTP(w, r)
+		}
 	})
 	http.Handle("/_status/vars", gziphandler.GzipHandler(handler))
 	if config.HasCustom() {
-		db, err := lib.NewCollector(ctx, config.Custom)
-		if err != nil {
-			log.Fatal("error connecting to the database", err)
+		freq := config.Custom.Frequency
+		if freq == 0 {
+			freq = defaultCustomFrequency
+		}
+		if config.Custom.Endpoint != "/_status/vars" {
+			if config.Custom.Endpoint == "" {
+				config.Custom.Endpoint = "/_status/custom"
+			}
+			http.Handle(config.Custom.Endpoint, promhttp.Handler())
 		}
 		go func() {
-			for {
-				err := db.GetCustomMetrics(ctx)
-				if err != nil {
-					log.Error(err)
-				}
-				// run this on the minute.
-				w := time.Duration(int(time.Minute) - time.Now().Second()*int(math.Pow10(9)))
-				time.Sleep(w * time.Nanosecond)
+			db, err := lib.NewCollector(ctx, config.Custom)
+			if err != nil {
+				log.Fatal("error connecting to the database", err)
 			}
-		}()
-		http.Handle("/_status/custom", promhttp.Handler())
-		if !config.Custom.DisableGetStatement {
-			http.Handle("/statement/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				args := strings.Split(r.URL.Path, "/")
-				if len(args) == 3 {
-					res, err := db.GetStatement(ctx, args[2])
+			go func() {
+				for {
+					err := db.GetCustomMetrics(ctx)
 					if err != nil {
-						w.WriteHeader(http.StatusInternalServerError)
-						fmt.Fprintln(w, err)
+						log.Error(err)
+					}
+					time.Sleep(time.Duration(freq*int(time.Second)) * time.Nanosecond)
+				}
+			}()
+			if !config.Custom.DisableGetStatement {
+				http.Handle("/statement/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					args := strings.Split(r.URL.Path, "/")
+					if len(args) == 3 {
+						res, err := db.GetStatement(ctx, args[2])
+						if err != nil {
+							w.WriteHeader(http.StatusInternalServerError)
+							fmt.Fprintln(w, err)
+							return
+						}
+						w.WriteHeader(http.StatusOK)
+						fmt.Fprintln(w, res)
+					} else {
+						w.WriteHeader(http.StatusBadRequest)
+						fmt.Fprintln(w, len(args))
 						return
 					}
-					w.WriteHeader(http.StatusOK)
-					fmt.Fprintln(w, res)
-				} else {
-					w.WriteHeader(http.StatusBadRequest)
-					fmt.Fprintln(w, len(args))
-					return
-				}
-			}))
-		}
+				}))
+			}
+		}()
 	}
 
 	server := &http.Server{

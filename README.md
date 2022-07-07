@@ -1,6 +1,6 @@
 # metrics-exporter
 
-Proxy to filter and rewrite cockroachDB metrics in Prometheus format.
+Proxy to filter and rewrite CockroachDB metrics in Prometheus format.
 Currently, it exports all metrics as is, except for histograms.
 Histograms are converted from a log-2 linear format (HDR histograms) to a log-10 linear format. 
 They have consistent lower/upper buckets to work with Grafana's heatmaps.
@@ -15,7 +15,7 @@ Usage of ./metrics-exporter:
   -debug
         log debug info
   -local string
-        local file
+        use local file to read Prometheus metrics (for testing)
   -trace
         log trace info
   -version
@@ -28,15 +28,25 @@ Optionally, the user can specify the upper range (in nanoseconds), the unit (sec
 
 The tls section allows the user to specify CA, cert and private key to connect to the backend. The same configuration is used to configure the HTTPS endpoint that the proxy listen to.
 
-The custom section enables the collection of custom metrics: sql activity per query (based on a  fingerprint id), 
-as well as global efficiency measurements (full scans, index joins, explicit transactions).
-Custom metrics are exposed on the `/_status/custom` endpoint.
+
+The custom section enables the collection of custom metrics: 
+* sql activity per query (based on a fingerprint id)
+* global efficiency measurements (full scans, index joins, explicit transactions).
+
+Custom metrics are exposed, by default, on the `/_status/custom` endpoint. The endpoint can be configured adding 
+a endpoint entry to the custom section. Setting it to  `/_status/vars` will force the custom metrics to be merged with the CockroachDB metrics.
+
+Custom metrics are fetched from the node every 10 seconds, unless the frequency parameter is set in the configuration.
+
 The `/statement` endpoint could be used to retrieve the statement associated to a fingerprint id.
-The Custom configuration allows to disable functionality by setting one or more of the following:
+
+The custom configuration section allows to disable functionality by setting one or more of the following:
+
 * DisableGetStatement=true disables the retrieval of statement based on an id.
 * SkipActivity=true disable sql activity metrics collection
 * SkipEfficiency=true disable efficiency metrics collection
 By default, all the functionality is enabled.
+
 ### Sample configuration:
 
 ```text
