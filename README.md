@@ -28,6 +28,7 @@ Optionally, the user can specify the upper range (in nanoseconds), the unit (sec
 
 The tls section allows the user to specify CA, cert and private key to connect to the backend. The same configuration is used to configure the HTTPS endpoint that the proxy listen to.
 
+
 The custom section enables the collection of custom metrics: 
 * sql activity per query (based on a fingerprint id)
 * global efficiency measurements (full scans, index joins, explicit transactions).
@@ -40,6 +41,7 @@ Custom metrics are fetched from the node every 10 seconds, unless the frequency 
 The `/statement` endpoint could be used to retrieve the statement associated to a fingerprint id.
 
 The custom configuration section allows to disable functionality by setting one or more of the following:
+
 * DisableGetStatement=true disables the retrieval of statement based on an id.
 * SkipActivity=true disable sql activity metrics collection
 * SkipEfficiency=true disable efficiency metrics collection
