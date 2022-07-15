@@ -14,7 +14,6 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
-	"internal/lib"
 	"net/http"
 	"os"
 	"runtime"
@@ -23,6 +22,7 @@ import (
 	"time"
 
 	"github.com/NYTimes/gziphandler"
+	"github.com/cockroachlabs/metrics-exporter/internal/lib"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/common/expfmt"
@@ -145,7 +145,8 @@ func main() {
 		go func() {
 			db, err := lib.NewCollector(ctx, config.Custom)
 			if err != nil {
-				log.Fatal("error connecting to the database", err)
+				log.Error("error connecting to the database", err)
+				return
 			}
 			go func() {
 				for {

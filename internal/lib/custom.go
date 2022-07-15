@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/golang/groupcache/lru"
@@ -123,6 +124,14 @@ var (
 		}, []string{"type"})
 )
 
+// Collector queries the database to collect custom metrics
+type Collector struct {
+	first         bool
+	config        Custom
+	pool          *pgxpool.Pool
+	logicalIOLast logicalIO
+	metricsCache  *lru.Cache
+}
 type activity struct {
 	time         int64
 	id           string
@@ -140,38 +149,35 @@ type activity struct {
 	rowsRead     *float64
 }
 
-// Collector queries the database to collect custom metrics
-type Collector struct {
-	first        bool
-	config       Custom
-	pool         *pgxpool.Pool
-	rowArrayLast rowLioSample
-	countCache   *lru.Cache
-}
-type rowLioSample struct {
-	lioTotal    int
-	fullLio     int
-	iJoinLio    int
-	explicitLio int
-	healthyLio  int
+type logicalIO struct {
+	total     int
+	full      int
+	indexJoin int
+	explicit  int
+	healthy   int
 }
 
 // NewCollector creates a new collector for retrieving sql activity from the
 // internal CRDB tables
 func NewCollector(ctx context.Context, config Custom) (*Collector, error) {
-	poolConfig, err := pgxpool.ParseConfig(config.URL)
-	if err != nil {
-		return nil, err
-	}
+
 	var pool *pgxpool.Pool
 	sleep := 5
 	for {
-		pool, err = pgxpool.ConnectConfig(ctx, poolConfig)
+		poolConfig, err := pgxpool.ParseConfig(config.URL)
 		if err != nil {
+			log.Error(err)
 			log.Warnf("Unable to connect to the db. Retrying in %d seconds", sleep)
 			time.Sleep(time.Duration(sleep * int(time.Second)))
 		} else {
-			break
+			pool, err = pgxpool.ConnectConfig(ctx, poolConfig)
+			if err != nil {
+				log.Error(err)
+				log.Warnf("Unable to connect to the db. Retrying in %d seconds", sleep)
+				time.Sleep(time.Duration(sleep * int(time.Second)))
+			} else {
+				break
+			}
 		}
 		if sleep < 60 {
 			sleep += 5
@@ -180,11 +186,21 @@ func NewCollector(ctx context.Context, config Custom) (*Collector, error) {
 	if config.Limit == 0 {
 		config.Limit = defaultLimit
 	}
+	countCache := lru.New(config.Limit * 2)
+	countCache.OnEvicted = func(key lru.Key, value interface{}) {
+		switch k := key.(type) {
+		case string:
+			deleted := requests.DeleteLabelValues(strings.Split(k, "|")...)
+			if deleted {
+				log.Debugf("%s removed from cache", k)
+			}
+		}
+	}
 	return &Collector{
-		first:      true,
-		config:     config,
-		pool:       pool,
-		countCache: lru.New(config.Limit * 4),
+		first:        true,
+		config:       config,
+		pool:         pool,
+		metricsCache: countCache,
 	}, nil
 }
 
@@ -280,18 +296,16 @@ func (c *Collector) getActivity(ctx context.Context) error {
 
 		labels := []string{r.id, r.app, r.database}
 		key := r.id + "|" + r.app + "|" + r.database
-		if cached, ok := c.countCache.Get(key); ok {
-			lastCount := cached.(int64)
-			if r.cnt >= lastCount {
-				requests.WithLabelValues(labels...).Add(float64(r.cnt - lastCount))
+		log.Tracef("key:%s", key)
+		if cached, ok := c.metricsCache.Get(key); ok {
+			last := cached.(*activity)
+			if r.cnt > last.cnt {
+				requests.WithLabelValues(labels...).Add(float64(r.cnt - last.cnt))
 			}
-			// } else {
-			// 	requests.WithLabelValues(labels...).Add(float64(r.cnt))
-			// }
 		} else if !c.first {
 			requests.WithLabelValues(labels...).Add(float64(r.cnt))
 		}
-		c.countCache.Add(key, r.cnt)
+		c.metricsCache.Add(key, r)
 		if r.maxDiskUsage != nil {
 			maxDiskUsage.WithLabelValues(labels...).Set(*r.maxDiskUsage)
 		}
@@ -320,7 +334,7 @@ func (c *Collector) getActivity(ctx context.Context) error {
 			contTime.WithLabelValues(labels...).Set(*r.contTime)
 		}
 	}
-	log.Tracef("Cache len:%d", c.countCache.Len())
+	log.Tracef("Cache len:%d", c.metricsCache.Len())
 	return nil
 }
 
@@ -346,27 +360,27 @@ func (c *Collector) getEfficiency(ctx context.Context) error {
 	defer rows.Close()
 
 	for rows.Next() {
-		rowArray := rowLioSample{}
-		err := rows.Scan(&rowArray.lioTotal, &rowArray.fullLio, &rowArray.iJoinLio, &rowArray.explicitLio, &rowArray.healthyLio)
+		lio := &logicalIO{}
+		err := rows.Scan(&lio.total, &lio.full, &lio.indexJoin, &lio.explicit, &lio.healthy)
 		if err != nil {
 			log.Tracef("getEfficiency Scan %s", err.Error())
 			return err
 		}
 		log.Debugf("time:%d, explicitTotal:%d, adding: %f",
 			time.Now().Unix(),
-			rowArray.explicitLio,
-			noNegVals(rowArray.explicitLio, c.rowArrayLast.explicitLio))
+			lio.explicit,
+			noNegVals(lio.explicit, c.logicalIOLast.explicit))
 		if !c.first {
-			stmtStats.WithLabelValues("full").Add(noNegVals(rowArray.fullLio, c.rowArrayLast.fullLio))
-			stmtStats.WithLabelValues("ijoin").Add(noNegVals(rowArray.iJoinLio, c.rowArrayLast.iJoinLio))
-			stmtStats.WithLabelValues("explicit").Add(noNegVals(rowArray.explicitLio, c.rowArrayLast.explicitLio))
-			stmtStats.WithLabelValues("optimized").Add(noNegVals(rowArray.healthyLio, c.rowArrayLast.healthyLio))
+			stmtStats.WithLabelValues("full").Add(noNegVals(lio.full, c.logicalIOLast.full))
+			stmtStats.WithLabelValues("ijoin").Add(noNegVals(lio.indexJoin, c.logicalIOLast.indexJoin))
+			stmtStats.WithLabelValues("explicit").Add(noNegVals(lio.explicit, c.logicalIOLast.explicit))
+			stmtStats.WithLabelValues("optimized").Add(noNegVals(lio.healthy, c.logicalIOLast.healthy))
 		}
-		c.rowArrayLast.lioTotal = rowArray.lioTotal
-		c.rowArrayLast.fullLio = rowArray.fullLio
-		c.rowArrayLast.iJoinLio = rowArray.iJoinLio
-		c.rowArrayLast.explicitLio = rowArray.explicitLio
-		c.rowArrayLast.healthyLio = rowArray.healthyLio
+		c.logicalIOLast.total = lio.total
+		c.logicalIOLast.full = lio.full
+		c.logicalIOLast.indexJoin = lio.indexJoin
+		c.logicalIOLast.explicit = lio.explicit
+		c.logicalIOLast.healthy = lio.healthy
 	}
 	return nil
 }
