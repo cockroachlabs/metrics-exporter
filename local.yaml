@@ -8,5 +8,3 @@ bucket:
   include: ^(exec_latency|txn_durations)$
 custom: 
   url: postgresql://root@localhost:26257?sslmode=disable
-  limit: 30
-  disablegetstatement: true

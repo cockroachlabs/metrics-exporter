@@ -34,6 +34,7 @@ func (r *MetricsReader) fetch(ctx context.Context) (*http.Response, error) {
 	client := http.Client{
 		Transport: r.Transport,
 	}
+
 	req, err := http.NewRequest(http.MethodGet, r.Config.URL, nil)
 	if err != nil {
 		return nil, err
