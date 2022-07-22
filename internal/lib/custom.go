@@ -299,7 +299,7 @@ func (c *Collector) getActivity(ctx context.Context) error {
 		log.Tracef("key:%s", key)
 		if cached, ok := c.metricsCache.Get(key); ok {
 			last := cached.(*activity)
-			if r.cnt > last.cnt {
+			if r.cnt >= last.cnt {
 				requests.WithLabelValues(labels...).Add(float64(r.cnt - last.cnt))
 			}
 		} else if !c.first {

@@ -43,13 +43,16 @@ WITH
 				statement_id
 			ORDER BY
 				lioperstmt
-		)
-SELECT
+		),
+stmt_eff as (
+	SELECT
 	sum(lioperstmt) AS liototal,
 	sum(lioperstmt * (IF(fullcnt > 0, 1, 0))) AS fulllio,
 	sum(lioperstmt * (IF(ijoincnt > 0, 1, 0))) AS ijoinlio,
 	sum(lioperstmt * (IF(explicitcnt > 0, 1, 0))) AS explicitlio,
 	sum(lioperstmt * (IF(healthycnt > 0, 1, 0))) AS healtylio
 FROM
-	sql_distinct_cnt
+	sql_distinct_cnt )
+
+SELECT *  FROM stmt_eff WHERE liototal IS NOT NULL
 ;

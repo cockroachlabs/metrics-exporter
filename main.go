@@ -18,12 +18,14 @@ import (
 	"os"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/NYTimes/gziphandler"
 	"github.com/cockroachlabs/metrics-exporter/internal/lib"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/common/expfmt"
 	log "github.com/sirupsen/logrus"
@@ -32,11 +34,14 @@ import (
 var (
 	// buildVersion is set by the go linker at build time
 	buildVersion           = "<unknown>"
+	buildTimestamp         = "<unknown>"
 	defaultCustomFrequency = 10
 )
 
 func printVersionInfo(buildVersion string) {
 	fmt.Println("metrics-exporter", buildVersion)
+	fmt.Println("built on", buildTimestamp)
+
 	fmt.Println(runtime.Version(), runtime.GOARCH, runtime.GOOS)
 	fmt.Println()
 	if bi, ok := debug.ReadBuildInfo(); ok {
@@ -63,7 +68,18 @@ func translateFromFile(
 	writer.WriteMetrics(ctx, metricFamilies, os.Stdout)
 
 }
-
+func setVersionMetric() {
+	ts, err := strconv.ParseInt(buildTimestamp, 10, 64)
+	if err == nil {
+		promauto.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name: "metrics_exporter_build_timestamp",
+				Help: "metrics exporter build timestamp",
+			},
+			[]string{"tag"},
+		).WithLabelValues(buildVersion).Set(float64(ts))
+	}
+}
 func main() {
 	configLocation := flag.String("config", "", "YAML configuration")
 	printVersion := flag.Bool("version", false, "print version and exit")
@@ -182,9 +198,9 @@ func main() {
 	server := &http.Server{
 		Addr: ":" + fmt.Sprintf("%d", config.Port),
 	}
-	log.Info("Starting proxy")
+	log.Infof("Starting metrics exporter %s on port %d", buildVersion, config.Port)
+	setVersionMetric()
 	log.Debugf("Bucket config: %+v\n Custom config:%+v\n", config.Bucket, config.Custom)
-
 	if !config.IsSecure() {
 		err = server.ListenAndServe()
 
