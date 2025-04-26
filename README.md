@@ -1,5 +1,8 @@
 # metrics-exporter
 
+This tool has been replaced by [visus](https://github.com/cockroachlabs/visus).
+
+
 Proxy to filter and rewrite CockroachDB metrics in Prometheus format.
 Currently, it exports all metrics as is, except for histograms.
 Histograms are converted from a log-2 linear format (HDR histograms) to a log-10 linear format. 
